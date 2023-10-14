@@ -199,7 +199,7 @@ impl<O: AsRef<Path>, D: AsRef<Path>> Compressor<O, D> {
 
     /// Compress the image to jpg format.
     /// The new image will be saved in the destination directory.
-    ///
+    /// Only allowed ColorType is RGB8.
     fn compress(
         &self,
         resized_img_data: Vec<u8>,
@@ -216,16 +216,7 @@ impl<O: AsRef<Path>, D: AsRef<Path>> Compressor<O, D> {
         comp.set_optimize_scans(true);
         let mut comp = comp.start_compress(Vec::new())?;
 
-        let mut line = 0;
-        loop {
-            if line > target_height - 1 {
-                break;
-            }
-            comp.write_scanlines(
-                &resized_img_data[line * target_width * 3..(line + 1) * target_width * 3],
-            )?;
-            line += 1;
-        }
+        comp.write_scanlines(&resized_img_data)?;
 
         let compressed = comp.finish()?;
         Ok(compressed)
@@ -234,6 +225,7 @@ impl<O: AsRef<Path>, D: AsRef<Path>> Compressor<O, D> {
     /// Convert RGBA8 to RGB8.
     /// If the alpha channel is 0, the function convert the pixel to white.
     /// Otherwise, the function just remove the alpha channel.
+    /// This removes some of the RGB that is hidden under the transparency.
     fn rgba8_to_rgb8(rgba_data: &[u8]) -> Vec<u8> {
         let mut rgb_data = Vec::with_capacity((rgba_data.len() / 4) * 3);
         for i in (0..rgba_data.len()).step_by(4) {
@@ -311,6 +303,16 @@ impl<O: AsRef<Path>, D: AsRef<Path>> Compressor<O, D> {
             image::ColorType::Rgb8 => resized_img.into_rgb8().to_vec(),
             _ => Self::rgba8_to_rgb8(resized_img.to_rgba8().as_raw()),
         };
+
+        if resized_img_data.len() != target_height * target_width * 3 {
+            return Err(Box::new(io::Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "The resized image data is wrong! file: {}",
+                    source_file_path.file_name().unwrap().to_str().unwrap()
+                ),
+            )));
+        }
 
         let compressed_img_data = self.compress(
             resized_img_data,
